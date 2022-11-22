@@ -1,0 +1,84 @@
+training:
+  batch_size: 32
+  loader_workers: 8
+  pin_memory: true
+  prefetch_factor: 2
+  gradient_accumulation_steps: 2
+  mixed_precision: fp16
+  start_step: 0
+  p1_total_step: 140000
+  p2_total_step: 140000
+  lpips_lambda: 10
+  l1_lambda: 5
+  id_lambda: 3
+  content_lambda: 2
+  loss_type: basic
+  lpips_type: vgg
+  lpips_model_path: ''
+  id_model_path: /workspace/gan/3D-FM-GAN/pretraiend/model_ir_se50.pth
+  scheme: from_pretrained
+  from_pretrained_path: /workspace/gan/3D-FM-GAN/pretraiend/550000.pt
+  resume_path: null
+eval:
+  batch_size: 64
+  pin_memory: true
+  loader_workers: 8
+  prefetch_factor: 2
+model:
+  wplus_num_layers: 50
+  output_size: 256
+  input_size: 256
+  disc: true
+dataset:
+  root: /workspace/gan/3D-FM-GAN/data
+  recon1:
+    sub_dir: ffhq
+    crop: false
+    random_flip: true
+    range:
+    - 0
+    - 65000
+  recon2:
+    sub_dir: syn_data
+    crop: false
+    random_flip: true
+    range:
+    - 0
+    - 70000
+  disen:
+    sub_dir: syn_data
+    crop: false
+    random_flip: true
+  eval_fake:
+    sub_dir: ffhq
+    crop: false
+    random_flip: false
+    range:
+    - 65000
+    - 7000
+  eval_real:
+    sub_dir: ffhq
+    crop: false
+    random_flip: false
+    range:
+    - 65000
+    - 7000
+optimizer:
+  use_8bit_adam: true
+  lr1: 0.0001
+  lr2: 0.001
+  beta1: 0
+  beta2: 0.999
+ckpt_interval: 60
+log_interval: 30
+evaluation_interval: 30
+seed: 77
+with_tracking: false
+exp_name: exp1
+eval_metrics:
+- fid50k
+eval_during_training: true
+eval_backbone: InceptionV3_tf
+num_gpus: 8
+num_generation: 10
+post_resizer: friendly

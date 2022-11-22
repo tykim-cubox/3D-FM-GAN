@@ -1,0 +1,86 @@
+wandb_version: 1
+
+_content:
+  desc: null
+  value:
+    ckpt_interval: '60'
+    dataset: '{''root'': ''/workspace/gan/3D-FM-GAN/data'', ''recon1'': {''sub_dir'':
+      ''ffhq'', ''crop'': False, ''random_flip'': True, ''range'': [0, 65000], ''resize'':
+      256}, ''recon2'': {''sub_dir'': ''syn_data'', ''crop'': False, ''random_flip'':
+      True, ''range'': [0, 70000]}, ''disen'': {''sub_dir'': ''syn_data'', ''crop'':
+      False, ''random_flip'': True, ''resize'': 256}, ''eval_fake'': {''sub_dir'':
+      ''ffhq'', ''crop'': False, ''random_flip'': False, ''range'': [65000, 7000]},
+      ''eval_real'': {''sub_dir'': ''ffhq'', ''crop'': False, ''random_flip'': False,
+      ''range'': [65000, 7000]}}'
+    eval: '{''batch_size'': 64, ''pin_memory'': True, ''loader_workers'': 8, ''prefetch_factor'':
+      2}'
+    eval_backbone: InceptionV3_tf
+    eval_during_training: 'True'
+    eval_metrics:
+    - fid50k
+    evaluation_interval: '30'
+    exp_name: exp1
+    exp_path: /workspace/gan/3D-FM-GAN/exp1
+    log_interval: '30'
+    logging_path: /workspace/gan/3D-FM-GAN/exp1/logging
+    model: '{''wplus_num_layers'': 50, ''output_size'': 256, ''input_size'': 256,
+      ''disc'': True}'
+    num_generation: '10'
+    num_gpus: '8'
+    optimizer: '{''use_8bit_adam'': True, ''lr1'': 0.0001, ''lr2'': 0.001, ''beta1'':
+      0, ''beta2'': 0.999}'
+    post_resizer: friendly
+    seed: '77'
+    training: '{''batch_size'': 8, ''loader_workers'': 8, ''pin_memory'': True, ''prefetch_factor'':
+      2, ''gradient_accumulation_steps'': 2, ''mixed_precision'': ''fp16'', ''start_step'':
+      0, ''p1_total_step'': 140000, ''p2_total_step'': 140000, ''l1_lambda'': 3.0,
+      ''id_lambda'': 3.0, ''lpips_lambda'': 30.0, ''content_lambda'': 20.0, ''loss_type'':
+      ''basic'', ''lpips_type'': ''alex'', ''lpips_model_path'': '''', ''id_model_path'':
+      ''/workspace/gan/3D-FM-GAN/pretraiend/model_ir_se50.pth'', ''scheme'': ''from_pretrained'',
+      ''from_pretrained_path'': ''/workspace/gan/3D-FM-GAN/pretraiend/550000.pt'',
+      ''resume_path'': None}'
+    with_tracking: 'True'
+_flags_cache:
+  desc: null
+  value:
+    allow_objects: null
+    convert: null
+    readonly: null
+    struct: false
+_metadata:
+  desc: null
+  value: 'ContainerMetadata(ref_type=typing.Any, object_type=<class ''dict''>, optional=True,
+    key=None, flags={''struct'': False}, flags_root=False, resolver_cache=defaultdict(<class
+    ''dict''>, {''now'': {(''%Y-%m-%d'',): ''2022-11-21'', (''%H-%M-%S'',): ''16-27-51''}}),
+    key_type=typing.Any, element_type=typing.Any)'
+_parent:
+  desc: null
+  value: null
+_wandb:
+  desc: null
+  value:
+    cli_version: 0.13.5
+    framework: torch
+    is_jupyter_run: false
+    is_kaggle_kernel: false
+    python_version: 3.8.10
+    start_time: 1669015675.222471
+    t:
+      1:
+      - 1
+      - 41
+      - 50
+      - 55
+      - 71
+      2:
+      - 1
+      - 41
+      - 50
+      - 55
+      - 71
+      3:
+      - 23
+      4: 3.8.10
+      5: 0.13.5
+      8:
+      - 5

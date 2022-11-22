@@ -1,0 +1,8 @@
+training:
+  batch: 32
+  gradient_accumulation_steps: 2
+model:
+  wplus_num_layers: 50
+  output_size: 256
+  input_size: 256
+  ckpt_path: /workspace/gan/3D-FM-GAN/pretraiend/550000.pt

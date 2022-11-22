@@ -1,0 +1,15 @@
+training:
+  batch: 32
+  gradient_accumulation_steps: 2
+  lpips_lambda: 10
+  l1_lambda: 5
+  id_lambda: 3
+  content_lambda: 2
+  loss_type: basic
+  lpips_type: vgg
+model:
+  wplus_num_layers: 50
+  output_size: 256
+  input_size: 256
+  ckpt_path: /workspace/gan/3D-FM-GAN/pretraiend/550000.pt
+  disc: true
