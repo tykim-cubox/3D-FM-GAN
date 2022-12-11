@@ -1,8 +1,8 @@
 training:
   batch_size : 8
-  loader_workers : 8
+  loader_workers : 16
   pin_memory : True
-  prefetch_factor : 2
+  prefetch_factor : 4
   gradient_accumulation_steps : 2
   mixed_precision : 'fp16' # 'no', 'bf16'
   start_step : 0
@@ -15,9 +15,9 @@ training:
   loss_type : 'basic'
   lpips_type : 'alex'
   lpips_model_path : ''
-  id_model_path : '/workspace/gan/3D-FM-GAN/pretraiend/model_ir_se50.pth'
+  id_model_path : '/workspace/gan/3D-FM-GAN/pretrained/model_ir_se50.pth'
   scheme: 'from_pretrained' # 'resume', 'from_pretrained', 'scratch'
-  from_pretrained_path : '/workspace/gan/3D-FM-GAN/pretraiend/550000.pt'
+  from_pretrained_path : '/workspace/gan/3D-FM-GAN/pretrained/550000.pt'
   resume_path : null
 
 eval:
@@ -27,7 +27,7 @@ eval:
   prefetch_factor : 2
   
 model:
-  wplus_num_layers : 50
+  wplus_num_layers : 18
   output_size : 256
   input_size : 256
   disc : True
@@ -62,10 +62,10 @@ dataset:
     range : [65000, 70000]
 
 optimizer:
-  use_8bit_adam : True
+  use_8bit_adam : False
   lr1 : 0.0001
   lr2 : 0.001
-  beta1 : 0
+  beta1 : 0.9
   beta2 : 0.999
 
 ckpt_interval : 60
@@ -75,7 +75,7 @@ seed : 77
 with_tracking : True
 exp_name : 'exp1'
 # logging_path : '/workspace/gan/3D-FM-GAN/logging'
-eval_metrics : ['fid50k'] # 'fid50k', 'pr' ,..
+eval_metrics : # ['fid50k'] # 'fid50k', 'pr' ,..
 eval_during_training : True
 eval_backbone : 'InceptionV3_tf' # TODO : DINO_torch
 num_gpus : 8

@@ -47,10 +47,45 @@ class EncoderW(nn.Module):
         # [B 512 1 1] > [B 512]
         return rearrange(x, 'b c h w -> b (h w) c')
 
+class GradualStyleEncoder18(GradualStyleEncoder):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
+    def forward(self, x):
+        x = self.input_layer(x)
+
+        latents = []
+        modulelist = list(self.body._modules.values())
+        for i, l in enumerate(modulelist):
+            x = l(x)
+            if i == 2:
+                c1 = x
+            elif i == 5:
+                c2 = x
+            elif i == 7:
+                c3 = x
+
+        for j in range(self.coarse_ind):
+            # print(c3.shape)
+            latents.append(self.styles[j](c3))
+
+        p2 = self._upsample_add(c3, self.latlayer1(c2))
+        for j in range(self.coarse_ind, self.middle_ind):
+            latents.append(self.styles[j](p2))
+
+        p1 = self._upsample_add(p2, self.latlayer2(c1))
+        for j in range(self.middle_ind, self.style_count):
+            latents.append(self.styles[j](p1))
+
+        out = torch.stack(latents, dim=1)
+        return out
+
 class EncoderWplus(nn.Module):
     def __init__(self, num_layers=50, mode='ir', output_size=256):
         super().__init__()
-        self.features = GradualStyleEncoder(num_layers, mode, output_size, input_nc=3)
+        # self.features = GradualStyleEncoder(num_layers, mode, output_size, input_nc=3)
+        self.features = GradualStyleEncoder18(num_layers, mode, output_size, input_nc=3)
 
     def forward(self, x):
         x = self.features(x)
@@ -110,7 +145,7 @@ class FMGenerator(nn.Module):
 
 
 class FMGAN(nn.Module):
-    def __init__(self, cfg, generator, discriminator):
+    def __init__(self, cfg, generator, discriminator, lpips_loss, id_loss, l1_loss, content_loss):
         super().__init__()
 
         self.generator = generator
@@ -133,36 +168,42 @@ class FMGAN(nn.Module):
         
 
 
-        device = self.generator.device()['stylegan']
+        # device = self.generator.device()['stylegan']
         self.g_loss = gan_loss_list[cfg.training.loss_type][0]
         self.d_loss = gan_loss_list[cfg.training.loss_type][1]
         # LPIPS, IDLoss는 네트워크에 의존하기 때문에 eval() 모드로 
-        self.lpips_loss = LPIPS(net=cfg.training.lpips_type).eval().to(device)
-        self.id_loss = IDLoss(cfg.training).eval().to(device)
-        self.l1_loss = torch.nn.L1Loss().to(device)
-        self.content_loss = ContentLoss().to(device)
-
+        # self.lpips_loss = LPIPS(net=cfg.training.lpips_type).eval().to(device)
+        # self.id_loss = IDLoss(cfg.training).eval().to(device)
+        # self.l1_loss = torch.nn.L1Loss().to(device)
+        # self.content_loss = ContentLoss().to(device)
+        self.lpips_loss = lpips_loss
+        self.id_loss = id_loss
+        self.l1_loss = l1_loss
+        self.content_loss = content_loss
 
 
     def disentangle_loss(self, p1, r1, m1, p2, r2, m2, model):
         loss = 0.0
         if model == 'd':
             p1_hat = self.generator(p1, r2)
+            self.disen_p1_hat = p1_hat
             p1_target = p2
             
-            p1_fake_logit = self.discriminator(p1_hat)
+            p1_fake_logit = self.discriminator(p1_hat.detach())
             p1_real_logit = self.discriminator(p1_target)
             loss += self.d_loss(p1_fake_logit, p1_real_logit)
 
             p2_hat = self.generator(p2, r1)
+            self.disen_p2_hat = p2_hat
             p2_target = p1
             
-            p2_fake_logit = self.discriminator(p2_hat)
+            p2_fake_logit = self.discriminator(p2_hat.detach())
             p2_real_logit = self.discriminator(p2_target)
             loss += self.d_loss(p2_fake_logit, p2_real_logit)
 
         if model == 'g':
-            p1_hat = self.generator(p1, r2)
+            # p1_hat = self.generator(p1, r2)
+            p1_hat = self.disen_p1_hat
             p1_target = p2
 
             p1_fake_logit = self.discriminator(p1_hat)
@@ -172,7 +213,8 @@ class FMGAN(nn.Module):
             loss += self.lpips_lambda * self.lpips_loss(p1_target , p1_hat).mean()
             loss += self.content_lambda * self.content_loss(p1_hat, r2, m2).mean() # m2와 r2를 이용
 
-            p2_hat = self.generator(p2, r1)
+            # p2_hat = self.generator(p2, r1)
+            p2_hat = self.disen_p2_hat
             p2_target = p1
 
             p2_fake_logit = self.discriminator(p2_hat)
@@ -188,13 +230,17 @@ class FMGAN(nn.Module):
         # loss = 0.0
         if model == 'd':
             p1_hat = self.generator(p1, r1)
-            fake_logit = self.discriminator(p1_hat)
+            self.recon_p1_hat = p1_hat
+            print(self.recon_p1_hat.requires_grad)
+            fake_logit = self.discriminator(p1_hat.detach())
             real_logit = self.discriminator(p1)
             loss = self.d_loss(fake_logit, real_logit)
 
         if model == 'g':
             # 여기서 OOM은 배치를 16으로 줄여서 해결
             p1_hat = self.generator(p1, r1)
+            # p1_hat = self.recon_p1_hat
+            print('test', p1_hat.requires_grad)
             fake_logit = self.discriminator(p1_hat)
             # fake_logit : [16, 1]
             loss =  self.g_loss(fake_logit)
@@ -208,6 +254,7 @@ class FMGAN(nn.Module):
             lpipsloss = self.lpips_lambda * self.lpips_loss(p1, p1_hat).mean()
             loss += lpipsloss
         return loss
+        
         
     # @torch.inference_mode()
     # def inference(self, pic_img, coeff_edit_args):

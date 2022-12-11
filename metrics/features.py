@@ -9,7 +9,7 @@ def generate_images_and_stack_features(accelerator, fmgan, eval_model, eval_fake
             p1_hat = fmgan.generator(data['p1'], data['r1'])
             # p1_hat_gather = accelerator.gather_for_metrics((p1_hat))
 
-            features, logits = eval_model.get_outputs(p1_hat, quantize=quantize)
+            features, logits = eval_model(p1_hat, quantize=quantize)
             probs = torch.nn.functional.softmax(logits, dim=1)
 
         feature_holder.append(features)

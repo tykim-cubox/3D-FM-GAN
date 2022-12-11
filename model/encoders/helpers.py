@@ -39,10 +39,10 @@ def get_blocks(num_layers):
 		]
 	elif num_layers == 18:
 		blocks = [
-			get_block(in_channel=64, depth=64, num_units=3),
-			get_block(in_channel=64, depth=128, num_units=3),
-			get_block(in_channel=128, depth=256, num_units=8),
-			get_block(in_channel=256, depth=512, num_units=3)
+			get_block(in_channel=64, depth=64, num_units=1),
+			get_block(in_channel=64, depth=128, num_units=2),
+			get_block(in_channel=128, depth=256, num_units=3),
+			get_block(in_channel=256, depth=512, num_units=2)
 		]
 	else:
 		raise ValueError("Invalid number of layers: {}. Must be one of [50, 100, 152]".format(num_layers))

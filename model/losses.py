@@ -14,12 +14,12 @@ class ContentLoss(nn.Module):
         return self.mse(m*p_hat, m*r_tgt)
         
 class IDLoss(nn.Module):
-    def __init__(self, cfg):
+    def __init__(self, cfg, device):
         super(IDLoss, self).__init__()
         print('Loading ResNet ArcFace')
         self.facenet = Backbone(input_size=112, num_layers=50, drop_ratio=0.6, mode='ir_se')
         try:
-            self.facenet.load_state_dict(torch.load(cfg.id_model_path))
+            self.facenet.load_state_dict(torch.load(cfg.id_model_path, map_location=device))
         except IOError:
             self.facenet.load_state_dict(torch.load('/apdcephfs/share_916081/amosyhliu/pretrained_models/model_ir_se50.pth'))
 

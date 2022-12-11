@@ -8,6 +8,8 @@ except:
 from .inception import InceptionV3
 import numpy as np
 from PIL import Image
+from torch.nn import DataParallel
+from torch.nn.parallel import DistributedDataParallel
 
 
 model_versions = {"InceptionV3_torch": "pytorch/vision:v0.10.0",
@@ -28,7 +30,13 @@ class SaveOutput:
 
     def clear(self):
         self.outputs = []
-        
+
+def make_model_require_grad(model):
+    if isinstance(model, DataParallel) or isinstance(model, DistributedDataParallel):
+        model = model.module
+
+    for name, param in model.named_parameters():
+        param.requires_grad = True
 
 class Extractor(nn.Module):
     def __init__(self, backbone, post_resizer, device):
@@ -71,7 +79,7 @@ class Extractor(nn.Module):
         self.std = torch.Tensor(std).view(1, 3, 1, 1).to(self.device)
 
         # requrire grade=True로 설정?
-        # misc.make_model_require_grad(self.model)
+        make_model_require_grad(self.model)
 
     def eval(self):
         self.model.eval()
@@ -84,6 +92,10 @@ class Extractor(nn.Module):
         x = resize_images(x, self.resizer, self.totensor, self.mean, self.std, device=self.device)
         repres, logits = self.model(x)
         return repres, logits
+
+    def forward(self, x, quantize=False):
+        return self.get_outputs(x, quantize)
+
 
 
 dict_name_to_filter = {

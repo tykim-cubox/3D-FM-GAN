@@ -6,6 +6,12 @@ experiments/
 pretrained/
 model/Deep3DFaceRecon_pytorch/checkpoints
 model/Deep3DFaceRecon_pytorch/BFM
+model/Deep3DFaceRecon_pytorch/3d_bfm.zip
+model/Deep3DFaceRecon_pytorch/3d_ckpt.zip
+wandb/
+exp1/
+outputs/
+
 
 ### Linux ###
 *~
