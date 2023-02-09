@@ -30,7 +30,7 @@ import gc
 
 torch.backends.cudnn.benchmark = False
 torch.backends.cudnn.deterministic = True
-torch.use_deterministic_algorithms(True)
+# torch.use_deterministic_algorithms(True)
 # Ampare GPU
 # fp16을 쓰면 꺼야하는건가?
 # torch.backends.cuda.matmul.allow_tf32 = True
@@ -87,10 +87,90 @@ def prepare_real_moments(accelertor, data_loader, eval_model, num_generate, quan
     mu = np.mean(acts, axis=0)
     sigma = np.cov(acts, rowvar=False)
     return mu, sigma
+
+def train_one_step_epoch(fmgan, accelerator, recon_data, disen_data, d_optimizer, g_optimizer):
+    # data = next(recon_dl)
+    # print(data['p1'].device)
+
+    p1_hat = fmgan.generator(recon_data['p1'], recon_data['r1'])
+    fake_logit = fmgan.discriminator(p1_hat.detach())
+    real_logit = fmgan.discriminator(recon_data['p1'])
+    d_recon_loss = fmgan.d_loss(fake_logit, real_logit)
+
+    accelerator.backward(d_recon_loss)
+    accelerator.clip_grad_norm_(fmgan.discriminator.parameters(), 1.0)
+    d_optimizer.step()
+    d_optimizer.zero_grad(set_to_none=True)
+
+
+    # requires_grad(accelerator.unwrap_model(fmgan.discriminator), False)
+    fake_logit = fmgan.discriminator(p1_hat)
+    g_recon_loss =  fmgan.g_loss(fake_logit)
+    g_recon_loss +=  fmgan.id_lambda * fmgan.id_loss(recon_data['p1'], p1_hat).mean()
+    g_recon_loss += fmgan.l1_lambda * fmgan.l1_loss(recon_data['p1'], p1_hat)
+    g_recon_loss += fmgan.lpips_lambda * fmgan.lpips_loss(recon_data['p1'], p1_hat).mean()
     
+    accelerator.backward(g_recon_loss)
+    accelerator.clip_grad_norm_(fmgan.generator.parameters(), 1.0)
+    g_optimizer.step()
+    g_optimizer.zero_grad(set_to_none=True)
+    torch.cuda.empty_cache()
+    # requires_grad(accelerator.unwrap_model(fmgan.discriminator), True)
+    
+    # disentangle
+    # first_data, second_data = next(disen_dl)
+    first_data, second_data = disen_data
+    p1_hat = fmgan.generator(first_data['p_img'], second_data['r_img'])
+    p1_target = second_data['p_img']
+    p1_fake_logit = fmgan.discriminator(p1_hat.detach())
+    p1_real_logit = fmgan.discriminator(p1_target)
+    d_disen_loss =  fmgan.d_loss(p1_fake_logit, p1_real_logit)
+
+    accelerator.backward(d_disen_loss)
+    
+    p2_hat = fmgan.generator(second_data['p_img'], first_data['r_img'])
+    p2_target = first_data['p_img']
+    p2_fake_logit = fmgan.discriminator(p2_hat.detach())
+    p2_real_logit = fmgan.discriminator(p2_target)
+    d_disen_loss = fmgan.d_loss(p2_fake_logit, p2_real_logit)
+
+    accelerator.backward(d_disen_loss)
+    accelerator.clip_grad_norm_(fmgan.discriminator.parameters(), 1.0)
+    d_optimizer.step()
+    d_optimizer.zero_grad(set_to_none=True)
+   
+
+    # requires_grad(accelerator.unwrap_model(fmgan.discriminator), False)
+    p1_fake_logit = fmgan.discriminator(p1_hat)
+    g_disen_loss = fmgan.g_loss(p1_fake_logit)
+    g_disen_loss  += fmgan.id_lambda * fmgan.id_loss(p1_target , p1_hat).mean()
+    g_disen_loss  += fmgan.l1_lambda * fmgan.l1_loss(p1_target , p1_hat)
+    g_disen_loss  += fmgan.lpips_lambda * fmgan.lpips_loss(p1_target , p1_hat).mean()
+    g_disen_loss  += fmgan.content_lambda * fmgan.content_loss(p1_hat, second_data['r_img'], second_data['m_img']).mean() # m2와 r2를 이용
+
+    accelerator.backward(g_disen_loss)
+
+    p2_fake_logit = fmgan.discriminator(p2_hat)
+    g_disen_loss = fmgan.g_loss(p2_fake_logit)
+    g_disen_loss += fmgan.id_lambda * fmgan.id_loss(p2_target , p2_hat).mean()
+    g_disen_loss += fmgan.l1_lambda * fmgan.l1_loss(p2_target , p2_hat)
+    g_disen_loss += fmgan.lpips_lambda * fmgan.lpips_loss(p2_target , p2_hat).mean()
+    g_disen_loss += fmgan.content_lambda * fmgan.content_loss(p2_hat, first_data['r_img'], first_data['m_img']).mean()
+            
+    accelerator.backward(g_disen_loss)
+    accelerator.clip_grad_norm_(fmgan.generator.parameters(), 1.0)
+    g_optimizer.step()
+    g_optimizer.zero_grad(set_to_none=True)
+    
+    torch.cuda.empty_cache()
+    # requires_grad(accelerator.unwrap_model(fmgan.discriminator), True)
+    accelerator.wait_for_everyone()
+
+    return {'d_recon_loss' : d_recon_loss.item(), 'g_recon_loss' : g_recon_loss.item(), 'd_disen_loss' : d_disen_loss.item(), 'g_disen_loss' : g_disen_loss.item()}
 
 def train_one_step_re(fmgan, accelerator, recon_dl, disen_dl, d_optimizer, g_optimizer):
     data = next(recon_dl)
+    # print(data['p1'].device)
 
     p1_hat = fmgan.generator(data['p1'], data['r1'])
     fake_logit = fmgan.discriminator(p1_hat.detach())
@@ -98,6 +178,7 @@ def train_one_step_re(fmgan, accelerator, recon_dl, disen_dl, d_optimizer, g_opt
     d_recon_loss = fmgan.d_loss(fake_logit, real_logit)
 
     accelerator.backward(d_recon_loss)
+    accelerator.clip_grad_norm_(fmgan.discriminator.parameters(), 1.0)
     d_optimizer.step()
     d_optimizer.zero_grad(set_to_none=True)
 
@@ -110,6 +191,7 @@ def train_one_step_re(fmgan, accelerator, recon_dl, disen_dl, d_optimizer, g_opt
     g_recon_loss += fmgan.lpips_lambda * fmgan.lpips_loss(data['p1'], p1_hat).mean()
     
     accelerator.backward(g_recon_loss)
+    accelerator.clip_grad_norm_(fmgan.generator.parameters(), 1.0)
     g_optimizer.step()
     g_optimizer.zero_grad(set_to_none=True)
     torch.cuda.empty_cache()
@@ -133,6 +215,7 @@ def train_one_step_re(fmgan, accelerator, recon_dl, disen_dl, d_optimizer, g_opt
     d_disen_loss = fmgan.d_loss(p2_fake_logit, p2_real_logit)
 
     accelerator.backward(d_disen_loss)
+    accelerator.clip_grad_norm_(fmgan.discriminator.parameters(), 1.0)
     d_optimizer.step()
     d_optimizer.zero_grad(set_to_none=True)
    
@@ -155,6 +238,7 @@ def train_one_step_re(fmgan, accelerator, recon_dl, disen_dl, d_optimizer, g_opt
     g_disen_loss += fmgan.content_lambda * fmgan.content_loss(p2_hat, first_data['r_img'], first_data['m_img']).mean()
             
     accelerator.backward(g_disen_loss)
+    accelerator.clip_grad_norm_(fmgan.generator.parameters(), 1.0)
     g_optimizer.step()
     g_optimizer.zero_grad(set_to_none=True)
     
@@ -241,26 +325,35 @@ def post_train_step(accelerator, cfg, train_losses, fmgan, eval_model,
     # -----------------------------------------------------------------------------
     if (step % cfg.evaluation_interval == 0) and (step != 0):
         logger.info(f"Evaluation Metrics", main_process_only=True)
-        logger.info(f"generate_images_and_stack_features", main_process_only=True)
-        fake_feats, fake_probs, fake_imgs = features.generate_images_and_stack_features(accelerator=accelerator,
-                                                                                        fmgan=fmgan,
-                                                                                        eval_model=eval_model,
-                                                                                        eval_fake_dl=eval_fake_dl,
-                                                                                        quantize=True)
-        if 'fid50k' in cfg.eval_metrics:
-            logger.info(f"fid50k evaluation", main_process_only=True)
-            fid_score, m1, c1 = fid.calculate_fid(accelerator, cfg, eval_model, eval_real_dl, fake_feats,
-                                                  pre_cal_mean=fmgan.mu, pre_cal_std=fmgan.sigma)
-            logger.info(f"{step} , fid50k = {fid_score}", main_process_only=True)
-            if (accelerator.is_local_main_process) and (cfg.with_tracking):
-                accelerator.log({"fid50k" : fid_score}, step=step)
+        # logger.info(f"generate_images_and_stack_features", main_process_only=True)
+        # fake_feats, fake_probs, fake_imgs = features.generate_images_and_stack_features(accelerator=accelerator,
+        #                                                                                 fmgan=fmgan,
+        #                                                                                 eval_model=eval_model,
+        #                                                                                 eval_fake_dl=eval_fake_dl,
+        #                                                                                 quantize=True)
+        # if 'fid50k' in cfg.eval_metrics:
+        #     logger.info(f"fid50k evaluation", main_process_only=True)
+        #     fid_score, m1, c1 = fid.calculate_fid(accelerator, cfg, eval_model, eval_real_dl, fake_feats,
+        #                                           pre_cal_mean=fmgan.mu, pre_cal_std=fmgan.sigma)
+        #     logger.info(f"{step} , fid50k = {fid_score}", main_process_only=True)
+        #     if (accelerator.is_local_main_process) and (cfg.with_tracking):
+        #         accelerator.log({"fid50k" : fid_score}, step=step)
+        image_holder = []
+        for idx, data in enumerate(eval_fake_dl):
+            with torch.inference_mode():
+                p1_hat = fmgan.generator(data['p1'], data['r1'])
+                image_holder.append(p1_hat)
+            if idx == 10:
+                break
+
+        fake_imgs = torch.cat(image_holder, 0)
 
         if (accelerator.is_main_process):
             logger.info(f"Image sampling", main_process_only=True)
             save_folder = cfg.exp_path.joinpath('figures')
             save_folder.mkdir(parents=True, exist_ok=True)
             for idx, img in enumerate(fake_imgs[:cfg.num_generation].detach(), start=1):
-                save_path = cfg.exp_path.joinpath(save_folder, 'images_{step}_{idx}.png')
+                save_path = cfg.exp_path.joinpath(save_folder, f'images_{step}_{idx}.png')
                 save_image(((img+1)/2).clamp(0.0, 1.0), save_path, padding=0)
 
             if (cfg.with_tracking):
@@ -270,19 +363,19 @@ def post_train_step(accelerator, cfg, train_losses, fmgan, eval_model,
     # Checkpoint
     # -----------------------------------------------------------------------------
     # TODO : best model 저장
-    if (not step % cfg.ckpt_interval or not step % cfg.total_step) and accelerator.is_main_process:
-        dict_states = {'enc_t' : accelerator.get_state_dict(accelerator.unwrap_model(fmgan.generator).enc_t),
-                       'enc_w' : accelerator.get_state_dict(accelerator.unwrap_model(fmgan.generator).enc_w),
-                       'enc_wplus' : accelerator.get_state_dict(accelerator.unwrap_model(fmgan.generator).enc_wplus),
-                       'g' : accelerator.get_state_dict(accelerator.unwrap_model(fmgan.generator).stylegan),
-                       'd' : accelerator.get_state_dict(fmgan.discriminator),
-                       'g_optimizer' : g_optimizer.state_dict(),
-                       'd_optimizer' : d_optimizer.state_dict(),
-                       'step' : step,
-                       'seed' : cfg.seed,
-                       'exp_name' : cfg.exp_name}
+    # if (not step % cfg.ckpt_interval or not step % cfg.total_step) and accelerator.is_main_process:
+    #     dict_states = {'enc_t' : accelerator.get_state_dict(accelerator.unwrap_model(fmgan.generator).enc_t),
+    #                    'enc_w' : accelerator.get_state_dict(accelerator.unwrap_model(fmgan.generator).enc_w),
+    #                    'enc_wplus' : accelerator.get_state_dict(accelerator.unwrap_model(fmgan.generator).enc_wplus),
+    #                    'g' : accelerator.get_state_dict(accelerator.unwrap_model(fmgan.generator).stylegan),
+    #                    'd' : accelerator.get_state_dict(fmgan.discriminator),
+    #                    'g_optimizer' : g_optimizer.state_dict(),
+    #                    'd_optimizer' : d_optimizer.state_dict(),
+    #                    'step' : step,
+    #                    'seed' : cfg.seed,
+    #                    'exp_name' : cfg.exp_name}
 
-        torch.save(dict_states, cfg.exp_path.joinpath(f'model-{step}.pt'))
+    #     torch.save(dict_states, cfg.exp_path.joinpath(f'model-{step}.pt'))
 
 
 @hydra.main(config_path="config", config_name="main.yaml", version_base=None)
@@ -291,8 +384,10 @@ def main(cfg):
     OmegaConf.set_struct(cfg, False)
     # primitive = OmegaConf.to_container(cfg, resolve=True)
     # print(type(primitive))
-    if cfg.eval_during_training and (cfg.eval_metrics is None):
-        cfg.eval_metrics = ['fid50k']
+
+    # metric 없을 경우 디폴트 fid50k 
+    # if cfg.eval_during_training and (cfg.eval_metrics is None):
+    #     cfg.eval_metrics = ['fid50k']
 
     dir_path = Path(os.path.abspath(__file__)).parent
     if cfg.exp_name is not None:
@@ -385,7 +480,7 @@ def main(cfg):
     if accelerator.is_main_process:
         print('before inception', accelerator.device)
         show_memory()
-    if cfg.eval_during_training:
+    if cfg.eval_during_training and accelerator.is_main_process:
         if 'fid50k' in cfg.eval_metrics:
             extractor = Extractor(backbone=cfg.eval_backbone, post_resizer=cfg.post_resizer,
                                   device=accelerator.device)
@@ -499,20 +594,22 @@ def main(cfg):
     # -----------------------------------------------------------------------------
     # Preparation
     # -----------------------------------------------------------------------------
-    generator, discriminator, extractor, g_optimizer, d_optimizer, recon1_dl, recon2_dl, disen_dl, eval_fake_dl, eval_real_dl, lpips_loss, id_loss = accelerator.prepare(generator, discriminator, extractor, g_optimizer, d_optimizer, recon1_dl, recon2_dl, disen_dl, eval_fake_dl, eval_real_dl, lpips_loss, id_loss)
+    # generator, discriminator, extractor, g_optimizer, d_optimizer, recon1_dl, recon2_dl, disen_dl, eval_fake_dl, eval_real_dl, lpips_loss, id_loss = accelerator.prepare(generator, discriminator, extractor, g_optimizer, d_optimizer, recon1_dl, recon2_dl, disen_dl, eval_fake_dl, eval_real_dl, lpips_loss, id_loss)
+    
+    generator, discriminator, g_optimizer, d_optimizer, recon1_dl, recon2_dl, disen_dl, lpips_loss, id_loss = accelerator.prepare(generator, discriminator, g_optimizer, d_optimizer, recon1_dl, recon2_dl, disen_dl, lpips_loss, id_loss)
 
     fmgan = FMGAN(cfg, generator, discriminator, lpips_loss, id_loss, l1_loss, content_loss)
     if accelerator.is_main_process:
         print('after prepare')
         show_memory()
-    
-    requires_grad(accelerator.unwrap_model(extractor), False)
+    if accelerator.is_main_process:
+        requires_grad(accelerator.unwrap_model(extractor), False)
     requires_grad(accelerator.unwrap_model(lpips_loss), False)
     requires_grad(accelerator.unwrap_model(id_loss), False)
 
-    recon1_dl = sample_data(recon1_dl)
-    recon2_dl = sample_data(recon2_dl)
-    disen_dl = sample_data(disen_dl)
+    # recon1_dl = sample_data(recon1_dl)
+    # recon2_dl = sample_data(recon2_dl)
+    # disen_dl = sample_data(disen_dl)
 
     logger.info(f"{'Running training':*^20}")
     logger.info(f"  reconstruction 1 num examples = {len(recon1_ds)}")
@@ -555,29 +652,65 @@ def main(cfg):
     else:
         raise NotImplementedError
     
-    mu, sigma = prepare_real_moments(accelerator, eval_real_dl, extractor, num_generate, True)
-    fmgan.mu = mu
-    fmgan.sigma = sigma
+    # if accelerator.is_main_process:
+    #     mu, sigma = prepare_real_moments(accelerator, eval_real_dl, extractor, num_generate, True)
+    #     fmgan.mu = mu
+    #     fmgan.sigma = sigma
 
+    # accelerator.wait_for_everyone()
 
     # -----------------------------------------------------------------------------
     # Phase 1
     # -----------------------------------------------------------------------------
-    progress_bar = tqdm(range(0, cfg.training.p1_total_step), 
+    # progress_bar = tqdm(range(0, cfg.training.p1_total_step), 
+	# 					disable=not accelerator.is_local_main_process)
+    # progress_bar.set_description('Phase 1')
+    
+    # for idx in progress_bar:
+    #     # 재시작하는 경우
+    #     step = idx + cfg.training.start_step
+    #     if step > cfg.training.p1_total_step:
+    #         print('phase1 done')
+    #         break
+        
+    #     fmgan.train()
+    #     losses = train_one_step_re(fmgan, accelerator, recon1_dl, disen_dl, d_optimizer, g_optimizer)
+    #     post_train_step(accelerator, cfg, losses, fmgan, extractor, g_optimizer, d_optimizer, step, eval_fake_dl, eval_real_dl)
+    #     progress_bar.set_postfix(**losses)
+
+
+    # -----------------------------------------------------------------------------
+    # Phase 1 - epoch
+    # -----------------------------------------------------------------------------
+    p1_total_step = int(cfg.training.p1_total_step * 16 / (cfg.training.batch_size * accelerator.num_processes))
+    print('num_proc : ', accelerator.num_processes)
+    progress_bar = tqdm(range(0, p1_total_step), 
 						disable=not accelerator.is_local_main_process)
     progress_bar.set_description('Phase 1')
     
-    for idx in progress_bar:
-        # 재시작하는 경우
-        step = idx + cfg.training.start_step
-        if step > cfg.training.p1_total_step:
-            print('phase1 done')
-            break
-        
-        fmgan.train()
-        losses = train_one_step_re(fmgan, accelerator, recon1_dl, disen_dl, d_optimizer, g_optimizer)
-        post_train_step(accelerator, cfg, losses, fmgan, extractor, g_optimizer, d_optimizer, step, eval_fake_dl, eval_real_dl)
-        progress_bar.set_postfix(**losses)
+    step = cfg.training.start_step
+    while step < p1_total_step:
+        for idx, (recon_data, disen_data) in enumerate(zip(recon1_dl, disen_dl)):
+            step += 1
+            if step > cfg.training.p1_total_step:
+                print('phase1 done')
+                break
+            fmgan.train()
+
+            losses = train_one_step_epoch(fmgan, accelerator, recon_data, disen_data, d_optimizer, g_optimizer)
+            if accelerator.is_main_process:
+                post_train_step(accelerator, cfg, losses, fmgan, extractor, g_optimizer, d_optimizer, step, eval_fake_dl, eval_real_dl)
+                
+            accelerator.wait_for_everyone()
+            progress_bar.set_postfix(**losses)
+
+            
+            
+            
+                
+    torch.cuda.empty_cache()
+            
+
     # -----------------------------------------------------------------------------
     # Phase 2
     # -----------------------------------------------------------------------------

@@ -160,11 +160,9 @@ class ReconDataset(Dataset):
         
         return {'p1': p_image, 'r1':r_image}
         
+from itertools import combinations
+
 class DisentangleDataset(Dataset):
-    """
-    Disentangled Training
-    only synthetic data
-    """
     def __init__(self, root, sub_dir='syn_data',
                  num_variations=7,
                  crop=False,
@@ -178,13 +176,19 @@ class DisentangleDataset(Dataset):
         self.rendering_path = self.path.joinpath('rendering')
         self.mask_path = self.path.joinpath('mask')
         
-        # self.id_path_list = list(Path(root, sub_dir).iterdir())
-        
-        self.img_p_list = sorted(list(self.image_path.rglob('*[!_r].png')))
-        self.img_r_list = sorted(list(self.rendering_path.rglob('*_r.png')))
-        self.img_m_list = sorted(list(self.mask_path.rglob('*_m.png')))
-
+        self.img_p_list = list(self.image_path.rglob('*[!_r].png'))
         self.num_variations = num_variations
+        self.combi = list(combinations([i for i in range(num_variations)], 2))
+        self.data_indicies = []
+
+        # file_name
+        num_total_id_imgs = len(self.img_p_list)//self.num_variations
+        for i in range(num_total_id_imgs):
+            subject_idx = '%05d'%(i)
+            for j in self.combi:
+                self.data_indicies.append([subject_idx, j[0], j[1]])
+
+
         self.interpolation = {"nearest": InterpolationMode.NEAREST,
                               "box": InterpolationMode.BOX,
                               "bilinear": InterpolationMode.BILINEAR,
@@ -223,32 +227,22 @@ class DisentangleDataset(Dataset):
         self.trsf = transforms.Compose(self.trsf_list)
 
     def transformation(self, p_img, r_img, m_img):
-        # p_img, r_img, m_img = self.crop(p_img), self.crop(r_img), self.crop(m_img)
-        # p_img, r_img, m_img = self.resizer(p_img), self.resizer(r_img), self.resizer(m_img)
-        # if self.random_flip and random.random() > 0.5:
-        #     p_img = TF.hflip(p_img)
-        #     r_img = TF.hflip(r_img)
-        #     m_img = TF.hflip(m_img)
-
-        # p_img, r_img, m_img = self.to_tensor(p_img), self.to_tensor(r_img), self.to_tensor(m_img)
-        # return self.normalizer(p_img), self.normalizer(r_img), self.normalizer(m_img)
         data = {'p_img' : p_img, 'r_img' : r_img, 'm_img' : m_img}
         return self.trsf(data)
             
     def __len__(self):
-        return len(self.img_p_list)//self.num_variations
+        return len(self.data_indicies)
 
     def __getitem__(self, idx):
-        # 랜덤하게 두개의 짝을 선택
-        variation_idx = torch.randperm(self.num_variations)[:2]
-        subject_idx = '%05d'%(idx)
-        p1_name = f'{subject_idx}_{variation_idx[0]}.png'
-        r1_name = f'{subject_idx}_{variation_idx[0]}_r.png'
-        m1_name = f'{subject_idx}_{variation_idx[0]}_m.png'
+        subject_idx, first_idx, second_idx = self.data_indicies[idx]
+
+        p1_name = f'{subject_idx}_{first_idx}.png'
+        r1_name = f'{subject_idx}_{first_idx}_r.png'
+        m1_name = f'{subject_idx}_{first_idx}_m.png'
         
-        p2_name = f'{subject_idx}_{variation_idx[1]}.png'
-        r2_name = f'{subject_idx}_{variation_idx[1]}_r.png'
-        m2_name = f'{subject_idx}_{variation_idx[0]}_m.png'
+        p2_name = f'{subject_idx}_{second_idx}.png'
+        r2_name = f'{subject_idx}_{second_idx}_r.png'
+        m2_name = f'{subject_idx}_{second_idx}_m.png'
 
         p1_path = self.image_path.joinpath(p1_name)
         r1_path = self.rendering_path.joinpath(r1_name)
@@ -267,8 +261,48 @@ class DisentangleDataset(Dataset):
         m2 = pil_rgb_convert(Image.open(m2_path))
 
         return (self.transformation(p1,r1,m1), self.transformation(p2,r2,m2))
-        
 
+###########################
+# Infinite Iterator Wrapper
+###########################
+class IterLoader:
+    def __init__(self, dataloader):
+        self._dataloader = dataloader
+        self.iter_loader = iter(self._dataloader)
+        self._epoch = 0
+
+    @property
+    def epoch(self):
+        """The number of current epoch.
+        Returns:
+            int: Epoch number.
+        """
+        return self._epoch
+
+    def __next__(self):
+        try:
+            data = next(self.iter_loader)
+        except StopIteration:
+            print('stop iteration')
+            self._epoch += 1
+            if hasattr(self._dataloader.sampler, 'set_epoch'):
+                self._dataloader.sampler.set_epoch(self._epoch)
+            self.iter_loader = iter(self._dataloader)
+            data = next(self.iter_loader)
+
+        return data
+
+    def __len__(self):
+        return len(self._dataloader)
+
+from torch.utils.data import DistributedSampler
+import itertools
+def sample_data(loader):
+    for _epoch in itertools.count(1):
+        if isinstance(loader.sampler, DistributedSampler):
+            loader.sampler.set_epoch(_epoch)
+        for batch in loader:
+            yield batch
 
 
 class ImageDataset(Dataset):

@@ -38,8 +38,15 @@ import torch.nn as nn
 # print(y.is_leaf)
 # print(z.is_leaf)
 
-with torch.inference_mode():
-    x = torch.randn(1)
-    y = x + 1
+# with torch.inference_mode():
+#     x = torch.randn(1)
+#     y = x + 1
 
-x + torch.tensor([1.3], requires_grad=False)
+# x + torch.tensor([1.3], requires_grad=False)
+
+test = [1,2,3,4,5]
+test2 = [6,7,8,9,10]
+
+for idx, (t1, t2) in enumerate(zip(test, test2)):
+    print(t1)
+    print(t2)

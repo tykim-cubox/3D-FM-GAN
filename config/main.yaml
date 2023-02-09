@@ -1,6 +1,6 @@
 training:
   batch_size : 8
-  loader_workers : 16
+  loader_workers : 8
   pin_memory : True
   prefetch_factor : 4
   gradient_accumulation_steps : 2
@@ -68,14 +68,14 @@ optimizer:
   beta1 : 0.9
   beta2 : 0.999
 
-ckpt_interval : 60
+ckpt_interval : 60000
 log_interval : 30
-evaluation_interval : 30
+evaluation_interval : 60
 seed : 77
 with_tracking : True
 exp_name : 'exp1'
 # logging_path : '/workspace/gan/3D-FM-GAN/logging'
-eval_metrics : # ['fid50k'] # 'fid50k', 'pr' ,..
+eval_metrics : ['fid50k'] # 'fid50k', 'pr' ,..
 eval_during_training : True
 eval_backbone : 'InceptionV3_tf' # TODO : DINO_torch
 num_gpus : 8
